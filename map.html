@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html class='use-all-space'>
+<head>
+    <meta http-equiv='X-UA-Compatible' content='IE=Edge' />
+    <meta charset='UTF-8'>
+    <title>TomTom app map</title>
+    <meta name='viewport'
+          content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'/>
+    <link rel='stylesheet' type='text/css' href='https://api.tomtom.com/maps-sdk-for-web/cdn/5.x/5.49.1/maps/maps.css'/>
+    <style>
+       #map {
+           width: 100vw;
+           height: 100vh;
+       }
+    </style>
+</head>
+<body>
+    <div id='map' class='map'></div>
+    <script src='https://api.tomtom.com/maps-sdk-for-web/cdn/5.x/5.49.1/maps/maps-web.min.js'></script>
+    <script>
+		function makeRequest(url, options) {
+			options = options || {};
+			const request = new XMLHttpRequest();
+			return new Promise(function (resolve, reject) {
+				request.onreadystatechange = function () {
+					if (request.readyState !== 4) {
+						return;
+					}
+					
+					if (request.status >= 200 && request.status < 300) {
+						resolve(request.response, request);
+					} else {
+						reject({
+							status: request.status,
+							statusText: request.statusText
+						});
+					}
+				};
+			
+				request.open(options.method || 'GET', url, true);
+				const headers = options.headers;
+				if (headers) {
+					for (var header in headers) {
+						if (Object.prototype.hasOwnProperty.call(headers, header)) {
+							request.setRequestHeader(header, headers[header]);
+						}
+					}
+				}
+				if (options.data) {
+					request.send(JSON.stringify(options.data));
+				} else {
+					request.send();
+				}
+			});
+		}
+		
+		const tomtomKey = 'J0TeG5GuS86qs8D1EfZlevVgpt6x36VM';
+		
+		// Initialize the map.
+		tt.setProductInfo('TomTom App', '1.0.0.0');
+		const map = tt.map({
+			key: tomtomKey,
+			container: 'map',
+			style: 'tomtom://vector/1/basic-main'
+		});
+		
+		const urlParams = new URLSearchParams(window.location.search);
+		const code = urlParams.get('code');
+		// Sign into Strava using the code we got from the OAuth redirect.
+		makeRequest('https://www.strava.com/oauth/token', {
+				method: 'POST',
+				data: {
+					client_id: '44748',
+					client_secret: '23615d77cd7a8bfc3cc5d69241a1e193b0877bfe',
+					code: code,
+					grant_type: 'authorization_code'
+				},
+				headers: {
+					'Content-Type': 'application/json'
+				}
+			})
+			.then(function (response) {
+				// Use our access token to get the logged in users routes.
+				const data = JSON.parse(response);
+				return makeRequest(`https://www.strava.com/api/v3/athletes/${data.athlete.id}/routes`, {
+					headers: {
+						'Authorization': `Bearer ${data.access_token}`
+					}
+				})
+				.then(function (response) {
+					// Get the details of the first route.
+					const firstRoute = JSON.parse(response)[0];
+					return makeRequest(`https://www.strava.com/api/v3/routes/${firstRoute.id}/export_gpx`, {
+						headers: {
+							'Authorization': `Bearer ${data.access_token}`
+						}
+					});
+				});
+			})
+			.then(function (response) {
+				// TODO: Process the GPX data?
+				console.log(response);
+				
+				//return makeRequest(`https://api.tomtom.com/routing/1/calculateRoute/${startLat},${startLng}:${endLat},${endLng}/json?key=${tomtomKey}`);
+			})
+			.catch(function (error) {
+				console.error(error);
+			});
+	</script>
+</body>
+</html>
