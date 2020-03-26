@@ -7,6 +7,7 @@
     <meta name='viewport'
           content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'/>
     <link rel='stylesheet' type='text/css' href='https://api.tomtom.com/maps-sdk-for-web/cdn/5.x/5.49.1/maps/maps.css'/>
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.13.0/css/all.min.css" integrity="sha256-h20CPZ0QyXlBuAw7A+KluUYx/3pK+c7lYEpqLTlxjYQ=" crossorigin="anonymous" />
     <style>
        #map {
            width: 100vw;
@@ -16,7 +17,8 @@
 </head>
 <body>
     <div id='map' class='map'></div>
-    <script src='https://api.tomtom.com/maps-sdk-for-web/cdn/5.x/5.49.1/maps/maps-web.min.js'></script>
+	<script src='https://api.tomtom.com/maps-sdk-for-web/cdn/5.x/5.49.1/maps/maps-web.min.js'></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.13.0/js/all.min.js" integrity="sha256-KzZiKy0DWYsnwMF+X1DvQngQ2/FxF7MF3Ff72XcpuPs=" crossorigin="anonymous"></script>
     <script>
 		function makeRequest(url, options) {
 			options = options || {};
@@ -36,7 +38,7 @@
 						});
 					}
 				};
-			
+				
 				request.open(options.method || 'GET', url, true);
 				const headers = options.headers;
 				if (headers) {
@@ -47,6 +49,7 @@
 					}
 				}
 				if (options.data) {
+					request.setRequestHeader('Content-Type', 'application/json');
 					request.send(JSON.stringify(options.data));
 				} else {
 					request.send();
@@ -74,14 +77,12 @@
 					client_secret: '23615d77cd7a8bfc3cc5d69241a1e193b0877bfe',
 					code: code,
 					grant_type: 'authorization_code'
-				},
-				headers: {
-					'Content-Type': 'application/json'
 				}
 			})
 			.then(function (response) {
 				// Use our access token to get the logged in users routes.
 				const data = JSON.parse(response);
+				console.log(data);
 				return makeRequest(`https://www.strava.com/api/v3/athletes/${data.athlete.id}/routes`, {
 					headers: {
 						'Authorization': `Bearer ${data.access_token}`
@@ -98,14 +99,105 @@
 				});
 			})
 			.then(function (response) {
-				// TODO: Process the GPX data?
-				console.log(response);
+				// Process the GPX data.
+				const dom = new DOMParser().parseFromString(response, "application/xml");
+				const jsResponse = parseDom(dom);
+				const lngLats = jsResponse.gpx.trk.trkseg.map(seg => {
+					return [+seg.lon, +seg.lat];
+				});
 				
-				//return makeRequest(`https://api.tomtom.com/routing/1/calculateRoute/${startLat},${startLng}:${endLat},${endLng}/json?key=${tomtomKey}`);
+				const routeGeoJson = {
+					"type": "Feature",
+					"geometry": {
+						"type": "LineString",
+						"coordinates": lngLats
+					}
+				};
+				map.addLayer(buildStyle('1', routeGeoJson, 'black', 6))
+					.addLayer(buildStyle('2', routeGeoJson, 'blue', 4));
+				
+				const divElem = document.createElement('div');
+				const divClassAttr = document.createAttribute('class');
+				divClassAttr.value = 'fa-3x';
+				divElem.setAttributeNode(divClassAttr);
+				
+				const iconElem = document.createElement('i');
+				const iconClassAttr = document.createAttribute('class');
+				iconClassAttr.value = 'fas fa-walking';
+				iconElem.setAttributeNode(iconClassAttr);
+				
+				divElem.appendChild(iconElem);				
+				var marker = new tt.Marker(divElem).setLngLat(lngLats[0]).addTo(map);
+
+				var popupOffsets = {
+					bottom: [0, -50],
+				};
+				var popupHtml = '<div class="fa-4x"><i class="fas fa-flag-checkered"></i>GO!</span></div>';
+				var popup = new tt.Popup({offset: popupOffsets})
+					.setHTML(popupHtml);
+				marker.setPopup(popup).togglePopup();
+				
+				map.setZoom(15);
+				map.setCenter(lngLats[0]);
 			})
 			.catch(function (error) {
 				console.error(error);
 			});
+		
+		function buildStyle(id, data, color, width) {
+			return {
+				id: id,
+				type: 'line',
+				source: {
+					type: 'geojson',
+					data: data
+				},
+				paint: {
+					'line-color': color,
+					'line-width': width
+				},
+				layout: {
+					'line-cap': 'round',
+					'line-join': 'round'
+				}
+			};
+		}
+
+		function parseDom (dom) {
+			return parseNode(dom.documentElement, {});
+		}
+		
+		function parseNode(node, obj) {
+			if (node.children.length === 0) {
+				obj[node.nodeName] = node.textContent;
+			} else if (node.nodeName !== 'trkseg') {
+				let count = 0;
+				const len = node.children.length;
+				const newObj = {};
+				for (count; count < len; count += 1) {
+					obj[node.nodeName] = parseNode(node.children[count], newObj);
+				}
+			} else {
+				// trkseg node.
+				let count = 0;
+				const len = node.children.length;
+				let arr = [];
+				for (count; count < len; count += 1) {
+					const trkptNode = node.children[count];
+					const trkpt = {};
+					
+					let attrCount = 0;
+					const attrLen = trkptNode.attributes.length;
+					for (attrCount; attrCount < attrLen; attrCount += 1) {
+						trkpt[trkptNode.attributes[attrCount].nodeName] = trkptNode.attributes[attrCount].textContent;
+					}
+					
+					arr.push(parseNode(trkptNode.children[0], trkpt));
+				}
+				obj[node.nodeName] = arr;
+			}
+			return obj;
+		}
 	</script>
 </body>
 </html>
